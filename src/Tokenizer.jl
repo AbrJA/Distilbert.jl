@@ -2,7 +2,7 @@ module Tokenizer
 
 using Unicode
 
-export WordPieceTokenizer, tokenize, encode, load_vocab
+export WordPieceTokenizer, tokenize, encode, encode_batch, load_vocab
 
 struct WordPieceTokenizer
     vocab::Dict{String,Int}
@@ -146,6 +146,48 @@ function encode(tokenizer::WordPieceTokenizer, text::String; max_length=nothing,
     end
 
     return ids
+end
+
+"""
+    encode_batch(tokenizer, texts; max_length=512, padding=:longest)
+
+Encode multiple texts into a batch matrix with padding and attention mask.
+
+# Arguments
+- `texts::Vector{String}`: Input texts to encode
+- `max_length::Int`: Maximum sequence length (default: 512)
+- `padding::Symbol`: Padding strategy - `:longest` or `:max_length` (default: `:longest`)
+
+# Returns
+- `input_ids::Matrix{Int}`: Shape (seq_len, batch_size) - token IDs
+- `attention_mask::Matrix{Float32}`: Shape (seq_len, batch_size) - 1.0 for real tokens, 0.0 for padding
+"""
+function encode_batch(tokenizer::WordPieceTokenizer, texts::Vector{String};
+    max_length::Int=512, padding::Symbol=:longest)
+    # Encode all texts
+    all_ids = [encode(tokenizer, t) for t in texts]
+
+    # Determine target length based on padding strategy
+    max_actual_len = maximum(length.(all_ids))
+    target_len = if padding == :longest
+        min(max_length, max_actual_len)
+    else
+        max_length
+    end
+
+    # Create output matrices
+    pad_id = get(tokenizer.vocab, tokenizer.pad_token, 0)
+    batch_size = length(texts)
+    input_ids = fill(pad_id, target_len, batch_size)
+    attention_mask = zeros(Float32, target_len, batch_size)
+
+    for (i, ids) in enumerate(all_ids)
+        len = min(length(ids), target_len)
+        input_ids[1:len, i] = ids[1:len]
+        attention_mask[1:len, i] .= 1.0f0
+    end
+
+    return input_ids, attention_mask
 end
 
 end

@@ -1,7 +1,5 @@
 using Test
 using Distilbert
-include("../src/Tokenizer.jl")
-using .Tokenizer
 using JSON
 using Flux
 
@@ -11,7 +9,7 @@ vocab_file = joinpath(files_dir, "vocab.txt")
 
 # 1. Load Julia Model and Tokenizer
 println("Loading Julia model...")
-model = Distilbert.load_model(files_dir)
+model = load_model(files_dir)
 testmode!(model)
 tokenizer = WordPieceTokenizer(vocab_file; do_lower_case=true)
 

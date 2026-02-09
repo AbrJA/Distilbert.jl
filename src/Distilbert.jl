@@ -6,7 +6,12 @@ using JSON
 using Pickle
 using SafeTensors
 
-export DistilBertConfig, DistilBertModel
+# Include Tokenizer submodule
+include("Tokenizer.jl")
+using .Tokenizer: WordPieceTokenizer, tokenize, encode, encode_batch, load_vocab
+
+export DistilBertConfig, DistilBertModel, load_model
+export WordPieceTokenizer, tokenize, encode, encode_batch, load_vocab
 
 struct DistilBertConfig
     vocab_size::Int
@@ -141,7 +146,14 @@ function (m::MultiHeadSelfAttention)(x, mask=nothing)
     scores = scores ./ sqrt(Float32(m.head_dim))
 
     if mask !== nothing
-        # Masking logic to be implemented
+        # mask shape: (seq_len, batch_size) with 1.0 for real tokens, 0.0 for padding
+        # Expand mask to match scores shape: (seq_len, seq_len, n_heads * batch_size)
+        # We want to mask out attention TO padding tokens (columns in attention matrix)
+        mask_expanded = reshape(mask, 1, seq_len, batch_size)  # (1, seq_len, batch_size)
+        mask_expanded = repeat(mask_expanded, 1, 1, m.n_heads)  # (1, seq_len, n_heads * batch_size)
+        mask_expanded = reshape(mask_expanded, 1, seq_len, m.n_heads * batch_size)
+        # Apply large negative value where mask is 0 (padding positions)
+        scores = scores .+ (1.0f0 .- mask_expanded) .* -1.0f9
     end
 
     weights = softmax(scores, dims=2)
@@ -279,13 +291,13 @@ function load_model(path::String)
     state_dict = nothing
 
     if isfile(safetensors_path)
-        println("Loading weights from $safetensors_path using SafeTensors...")
+        @debug "Loading weights from $safetensors_path using SafeTensors..."
         state_dict = SafeTensors.load_safetensors(safetensors_path)
     elseif isfile(pytorch_bin_path)
-        println("Loading weights from $pytorch_bin_path using Pickle...")
+        @debug "Loading weights from $pytorch_bin_path using Pickle..."
         state_dict = Pickle.load(open(pytorch_bin_path))
     else
-        warn("No model weights found. Returning random initialized model.")
+        @warn "No model weights found. Returning randomly initialized model."
         return model
     end
 
@@ -350,7 +362,69 @@ function load_weights!(model::DistilBertModel, state_dict)
         load_layernorm!(block.output_layer_norm, "$layer_prefix.output_layer_norm")
     end
 
-    println("Weights loaded successfully.")
+    @debug "Weights loaded successfully."
 end
 
+# ============================================================================
+# High-Level Inference API
+# ============================================================================
+
+"""
+    inference(model, tokenizer, text) -> Matrix{Float32}
+
+Run inference on a single text string.
+
+# Arguments
+- `model::DistilBertModel`: The DistilBERT model (automatically set to test mode)
+- `tokenizer::WordPieceTokenizer`: The tokenizer
+- `text::String`: Input text
+
+# Returns
+- `output::Array{Float32,3}`: Hidden states of shape (dim, seq_len, 1)
+
+# Example
+```julia
+model = load_model("path/to/model")
+tokenizer = WordPieceTokenizer("path/to/vocab.txt")
+output = inference(model, tokenizer, "Hello world!")
+```
+"""
+function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String)
+    Flux.testmode!(model)
+    input_ids = encode(tokenizer, text)
+    input_matrix = reshape(input_ids, :, 1)
+    return model(input_matrix)
+end
+
+"""
+    inference(model, tokenizer, texts; max_length=512) -> Matrix{Float32}
+
+Run batch inference on multiple texts with automatic padding and masking.
+
+# Arguments
+- `model::DistilBertModel`: The DistilBERT model (automatically set to test mode)
+- `tokenizer::WordPieceTokenizer`: The tokenizer
+- `texts::Vector{String}`: Input texts
+- `max_length::Int`: Maximum sequence length (default: 512)
+
+# Returns
+- `output::Array{Float32,3}`: Hidden states of shape (dim, seq_len, batch_size)
+
+# Example
+```julia
+model = load_model("path/to/model")
+tokenizer = WordPieceTokenizer("path/to/vocab.txt")
+output = inference(model, tokenizer, ["Hello world!", "How are you?"])
+```
+"""
+function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer,
+    texts::Vector{String}; max_length::Int=512)
+    Flux.testmode!(model)
+    input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
+    return model(input_ids; mask=attention_mask)
+end
+
+export inference
+
 end # module Distilbert
+

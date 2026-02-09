@@ -8,20 +8,17 @@ files_dir = joinpath(@__DIR__, "../files")
 vocab_file = joinpath(files_dir, "vocab.txt")
 
 # 1. Load Julia Model and Tokenizer
-include("../src/Tokenizer.jl")
-using .Tokenizer
-
 println("Loading Julia model...")
-model = Distilbert.load_model(files_dir)
+model = load_model(files_dir)
 testmode!(model)
-tokenizer = Tokenizer.WordPieceTokenizer(vocab_file; do_lower_case=true)
+tokenizer = WordPieceTokenizer(vocab_file; do_lower_case=true)
 
 # 2. Input Data
 text = "DistilBERT is amazing. This is a benchmark test to compare performance."
 println("Input text: \"$text\"")
 
 # Tokenize and Encode
-input_ids = Tokenizer.encode(tokenizer, text)
+input_ids = encode(tokenizer, text)
 input_matrix = reshape(input_ids, :, 1)
 
 # Warmup
