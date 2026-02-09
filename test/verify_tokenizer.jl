@@ -2,10 +2,6 @@ using Test
 using Distilbert
 using JSON
 
-# Include the tokenizer directly or via Distilbert module if exported
-include("../src/Tokenizer.jl")
-using .Tokenizer
-
 # Paths
 files_dir = joinpath(@__DIR__, "../files")
 vocab_file = joinpath(files_dir, "vocab.txt")
