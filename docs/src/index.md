@@ -1,4 +1,4 @@
-# Distilbert.jl
+# DistilBERT.jl
 
 A pure Julia implementation of the DistilBERT model.
 

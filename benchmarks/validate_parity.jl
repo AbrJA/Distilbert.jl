@@ -9,7 +9,7 @@ This script:
 3. Supports both 'small' and 'big' models via argument
 =#
 
-using Distilbert
+using DistilBERT
 using Flux
 using JSON
 using Printf

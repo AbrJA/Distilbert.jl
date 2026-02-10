@@ -1,8 +1,8 @@
-using Documenter, Distilbert
+using Documenter, DistilBERT
 
 makedocs(
-    modules=[Distilbert],
-    sitename="Distilbert.jl",
+    modules=[DistilBERT],
+    sitename="DistilBERT.jl",
     format=Documenter.HTML(
         prettyurls=get(ENV, "CI", nothing) == "true",
     ),
@@ -12,5 +12,5 @@ makedocs(
 )
 
 deploydocs(
-    repo="github.com/AbrJA/Distilbert.jl.git",
+    repo="github.com/AbrJA/DistilBERT.jl.git",
 )

@@ -1,4 +1,4 @@
-module Distilbert
+module DistilBERT
 
 using Flux
 using NNlib
@@ -15,4 +15,4 @@ include("tokenizer.jl")
 include("loading.jl")
 include("inference.jl")
 
-end # module Distilbert
+end # module DistilBERT

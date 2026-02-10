@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 using Flux
-using Distilbert
+using DistilBERT
 using BenchmarkTools
 using MKL
 using Statistics

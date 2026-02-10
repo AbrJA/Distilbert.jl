@@ -1,5 +1,5 @@
-name = "Distilbert"
-uuid = "feade772-a77d-4a26-a31d-6c51722d33b3"
+name = "DistilBERT"
+uuid = "4a3a1c16-5378-477a-8c70-c7b46c0a0f4d"
 authors = ["AbrJA <abraham.jaimes.mx@gmail.com>"]
 version = "0.1.0"
 

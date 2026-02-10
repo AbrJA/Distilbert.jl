@@ -35,7 +35,7 @@ You need a folder containing `config.json`, `vocab.txt`, and `model.safetensors`
 
 ### 2. Basic Inference
 ```julia
-using Distilbert
+using DistilBERT
 
 # Load model and tokenizer
 model_path = "path/to/your/model_directory"
@@ -120,7 +120,7 @@ julia --project=. benchmarks/validate_parity.jl big
 
 ## Project Structure
 
-- `src/Distilbert.jl`: Main entry point and exports.
+- `src/DistilBERT.jl`: Main entry point and exports.
 - `src/config.jl`: Configuration struct.
 - `src/layers.jl`: Transformer layers (Attention, FFN, Embeddings).
 - `src/models.jl`: Model definitions and task heads.

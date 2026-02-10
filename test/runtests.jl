@@ -1,8 +1,8 @@
 using Test
-using Distilbert
+using DistilBERT
 using Flux
 
-@testset "Distilbert.jl" begin
+@testset "DistilBERT.jl" begin
     @testset "Config" begin
         config = DistilBertConfig()
         @test config.dim == 768
@@ -26,7 +26,7 @@ using Flux
 
     @testset "Embeddings Layer" begin
         config = DistilBertConfig(dim=64, n_heads=4, vocab_size=100)
-        emb = Distilbert.Embeddings(config)
+        emb = DistilBERT.Embeddings(config)
         x = rand(1:100, 10, 2)
         y = emb(x)
         @test size(y) == (64, 10, 2)
@@ -34,7 +34,7 @@ using Flux
 
     @testset "Attention Layer" begin
         config = DistilBertConfig(dim=64, n_heads=4)
-        attn = Distilbert.MultiHeadSelfAttention(config)
+        attn = DistilBERT.MultiHeadSelfAttention(config)
         x = randn(Float32, 64, 10, 2)  # (dim, seq_len, batch_size)
         y = attn(x)
         @test size(y) == (64, 10, 2)
@@ -75,16 +75,16 @@ using Flux
         attention_mask[8:10, 2] .= 0.0f0  # Padding in second batch
 
         # CLS pooling
-        cls_out = Distilbert.cls_pooling(output)
+        cls_out = DistilBERT.cls_pooling(output)
         @test size(cls_out) == (64, batch_size)
         @test cls_out == output[:, 1, :]
 
         # Mean pooling
-        mean_out = Distilbert.mean_pooling(output, attention_mask)
+        mean_out = DistilBERT.mean_pooling(output, attention_mask)
         @test size(mean_out) == (64, batch_size)
 
         # Max pooling
-        max_out = Distilbert.max_pooling(output, attention_mask)
+        max_out = DistilBERT.max_pooling(output, attention_mask)
         @test size(max_out) == (64, batch_size)
     end
 
