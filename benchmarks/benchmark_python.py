@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import os
+import sys
 import time
 import torch
 from transformers import DistilBertModel, DistilBertTokenizer
 from statistics import median
 
-# Configuration — load exact same model as Julia
-MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+# Configuration
+MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
 
 def benchmark(func, samples=20, warmup=5):
@@ -21,26 +22,27 @@ def benchmark(func, samples=20, warmup=5):
     return median(times)
 
 
-def run_python_benchmark():
+def run_python_benchmark(model_name="big"):
+    model_path = os.path.join(MODELS_DIR, model_name)
+    if not os.path.isdir(model_path):
+        raise FileNotFoundError(f"Model directory not found: {model_path}")
+
     print("=" * 60)
-    print("       PYTHON BENCHMARK (models/ weights)")
+    print(f"       PYTHON BENCHMARK (models/{model_name})")
     print("=" * 60)
 
     torch.set_num_threads(4)
     print(f"Torch Threads: {torch.get_num_threads()}")
     print()
 
-    # 1. Load Model from models/ (same weights as Julia)
-    if not os.path.isdir(MODEL_PATH):
-        raise FileNotFoundError(f"models/ directory not found at {MODEL_PATH}")
-
-    model = DistilBertModel.from_pretrained(MODEL_PATH)
+    # 1. Load Model
+    model = DistilBertModel.from_pretrained(model_path)
     model.eval()
     config = model.config
     vocab_size = config.vocab_size
     print(f"✓ Model loaded: dim={config.dim}, hidden={config.hidden_dim}, layers={config.n_layers}, vocab={vocab_size}")
 
-    tokenizer = DistilBertTokenizer.from_pretrained(MODEL_PATH)
+    tokenizer = DistilBertTokenizer.from_pretrained(model_path)
     print(f"✓ Tokenizer loaded: {len(tokenizer)} tokens\n")
 
     results = {}
@@ -93,7 +95,7 @@ def run_python_benchmark():
     # PART 3: SUMMARY
     # ---------------------------------------------------------
     print("=" * 60)
-    print("PYTHON RESULTS SUMMARY")
+    print(f"PYTHON RESULTS SUMMARY ({model_name})")
     print("=" * 60)
     print(f"Model: dim={config.dim}, hidden={config.hidden_dim}, layers={config.n_layers}")
     print()
@@ -111,4 +113,5 @@ def run_python_benchmark():
 
 
 if __name__ == "__main__":
-    run_python_benchmark()
+    model_name = sys.argv[1] if len(sys.argv) > 1 else "big"
+    run_python_benchmark(model_name)

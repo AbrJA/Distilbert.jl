@@ -1,5 +1,4 @@
 #!/usr/bin/env julia
-using MKL
 using Flux
 using Distilbert
 using BenchmarkTools
@@ -7,12 +6,16 @@ using Statistics
 using Printf
 using LinearAlgebra
 
-# Configuration — load exact same model as Python
-const MODEL_PATH = joinpath(dirname(@__DIR__), "models")
+const MODELS_DIR = joinpath(dirname(@__DIR__), "models")
 
-function benchmark_julia()
+function benchmark_julia(model_name::String="big")
+    model_path = joinpath(MODELS_DIR, model_name)
+    if !isdir(model_path)
+        error("Model directory not found: $model_path")
+    end
+
     println("="^60)
-    println("       JULIA BENCHMARK (models/ weights)")
+    println("       JULIA BENCHMARK (models/$model_name)")
     println("="^60)
 
     BLAS.set_num_threads(4)
@@ -21,22 +24,17 @@ function benchmark_julia()
     println("Julia Threads: $(Threads.nthreads())")
     println()
 
-    # 1. Load Model from models/ (same weights as Python)
-    if !isdir(MODEL_PATH)
-        error("models/ directory not found at $MODEL_PATH")
-    end
-    model = load_model(MODEL_PATH)
+    # 1. Load Model
+    model = load_model(model_path)
+    m = Flux.testmode!(model)
     config = model.config
     vocab_size = config.vocab_size
     println("✓ Model loaded: dim=$(config.dim), hidden=$(config.hidden_dim), layers=$(config.n_layers), vocab=$(vocab_size)")
 
     # Tokenizer
-    vocab_path = joinpath(MODEL_PATH, "vocab.txt")
+    vocab_path = joinpath(model_path, "vocab.txt")
     tokenizer = WordPieceTokenizer(vocab_path)
     println("✓ Tokenizer loaded: $(length(tokenizer.vocab)) tokens\n")
-
-    # Disable dropout for deterministic results
-    Flux.testmode!(model)
 
     results = Dict()
 
@@ -82,9 +80,9 @@ function benchmark_julia()
 
         # Julia: input shape is (seq_len, batch_size)
         input = rand(1:vocab_size, s.seq, s.batch)
-        model(input) # Warmup
+        m(input) # Warmup
 
-        b = @benchmark $model($input) samples = 20
+        b = @benchmark $m($input) samples = 20
         t_ms = median(b.times) / 1e6
 
         results[s.name] = t_ms
@@ -95,7 +93,7 @@ function benchmark_julia()
     # PART 3: SUMMARY
     # ---------------------------------------------------------
     println("="^60)
-    println("JULIA RESULTS SUMMARY")
+    println("JULIA RESULTS SUMMARY ($model_name)")
     println("="^60)
     println("Model: dim=$(config.dim), hidden=$(config.hidden_dim), layers=$(config.n_layers)")
     println()
@@ -109,8 +107,11 @@ function benchmark_julia()
             @printf("%-25s: %.2f ms\n", k, results[k])
         end
     end
+
+    return results
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    benchmark_julia()
+    model_name = length(ARGS) > 0 ? ARGS[1] : "big"
+    benchmark_julia(model_name)
 end

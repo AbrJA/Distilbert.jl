@@ -3,28 +3,34 @@
 Parity Validation: Julia vs Python
 Loads the SAME model from models/, feeds IDENTICAL token IDs,
 and compares hidden state outputs element-wise.
+Supports both small and big models.
 =#
 using Distilbert
 using Flux
 using JSON
 using Printf
 
-const MODEL_PATH = joinpath(dirname(@__DIR__), "models")
+const MODELS_DIR = joinpath(dirname(@__DIR__), "models")
 
-function validate_parity()
+function validate_parity(model_name::String)
+    model_path = joinpath(MODELS_DIR, model_name)
+    if !isdir(model_path)
+        error("Model directory not found: $model_path")
+    end
+
     println("="^60)
-    println("       PARITY VALIDATION: Julia vs Python")
+    println("  PARITY VALIDATION: Julia vs Python ($model_name)")
     println("="^60)
 
     # 1. Load Julia Model
-    println("\n[Julia] Loading model from models/...")
-    model = load_model(MODEL_PATH)
-    Flux.testmode!(model)  # Disable dropout
+    println("\n[Julia] Loading model from models/$model_name/...")
+    model = load_model(model_path)
+    m = Flux.testmode!(model)
     config = model.config
     println("[Julia] Model: dim=$(config.dim), hidden=$(config.hidden_dim), layers=$(config.n_layers), vocab=$(config.vocab_size)")
 
     # Tokenizer
-    vocab_path = joinpath(MODEL_PATH, "vocab.txt")
+    vocab_path = joinpath(model_path, "vocab.txt")
     tokenizer = WordPieceTokenizer(vocab_path; do_lower_case=true)
 
     # 2. Test Text
@@ -36,7 +42,7 @@ function validate_parity()
     println("[Julia] Token IDs (1-based): $julia_ids")
 
     input_matrix = reshape(julia_ids, :, 1)  # (seq_len, 1)
-    julia_output = model(input_matrix)        # (dim, seq_len, 1)
+    julia_output = m(input_matrix)            # (dim, seq_len, 1)
     jl_out = dropdims(julia_output, dims=3)   # (dim, seq_len)
     println("[Julia] Output shape: $(size(jl_out))")
 
@@ -51,7 +57,7 @@ function validate_parity()
 import torch, json, os, sys
 from transformers import DistilBertModel, DistilBertTokenizer
 
-model_path = "$(MODEL_PATH)"
+model_path = "$(model_path)"
 text = "$(text)"
 
 tokenizer = DistilBertTokenizer.from_pretrained(model_path)
@@ -77,7 +83,7 @@ print(json.dumps(result))
         read(cmd, String)
     catch e
         println("ERROR: Python failed: $e")
-        return
+        return false
     end
 
     py_results = JSON.parse(python_out)
@@ -128,17 +134,20 @@ print(json.dumps(result))
     println("Per-Token Comparison (first 3 dims)")
     println("-"^60)
     seq_len = size(jl_out, 2)
+    ndims_show = min(3, config.dim)
     for t in 1:min(seq_len, 5)
-        jl_vals = jl_out[1:min(3, config.dim), t]
-        py_vals = py_hidden[1:min(3, config.dim), t]
-        @printf("  Token %d: Julia=[%.4f, %.4f, %.4f]  Python=[%.4f, %.4f, %.4f]\n",
-            t, jl_vals[1], jl_vals[2], jl_vals[3],
-            py_vals[1], py_vals[2], py_vals[3])
+        jl_vals = jl_out[1:ndims_show, t]
+        py_vals = py_hidden[1:ndims_show, t]
+        if ndims_show >= 3
+            @printf("  Token %d: Julia=[%.4f, %.4f, %.4f]  Python=[%.4f, %.4f, %.4f]\n",
+                t, jl_vals[1], jl_vals[2], jl_vals[3],
+                py_vals[1], py_vals[2], py_vals[3])
+        end
     end
 
     # 8. Summary
     println("\n" * "="^60)
-    println("VERDICT")
+    println("VERDICT ($model_name)")
     println("="^60)
     all_pass = ids_match && max_diff < 1e-4
     if all_pass
@@ -151,5 +160,6 @@ print(json.dumps(result))
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
-    validate_parity()
+    model_name = length(ARGS) > 0 ? ARGS[1] : "small"
+    validate_parity(model_name)
 end

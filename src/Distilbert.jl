@@ -310,9 +310,18 @@ end
 function load_weights!(model::DistilBertModel, state_dict)
     used_keys = Set{String}()
 
+    # Auto-detect and strip "distilbert." prefix (present in task-specific models
+    # like DistilBertForMaskedLM, DistilBertForSequenceClassification, etc.)
+    key_prefix = ""
+    first_key = first(keys(state_dict))
+    if startswith(first_key, "distilbert.")
+        key_prefix = "distilbert."
+        @info "Detected 'distilbert.' prefix in weight keys — stripping for base model loading."
+    end
+
     function load_dense!(dense::Dense, prefix::String)
-        w_key = prefix * ".weight"
-        b_key = prefix * ".bias"
+        w_key = key_prefix * prefix * ".weight"
+        b_key = key_prefix * prefix * ".bias"
 
         if haskey(state_dict, w_key)
             push!(used_keys, w_key)
@@ -332,8 +341,8 @@ function load_weights!(model::DistilBertModel, state_dict)
     end
 
     function load_layernorm!(ln::LayerNorm, prefix::String)
-        w_key = prefix * ".weight"
-        b_key = prefix * ".bias"
+        w_key = key_prefix * prefix * ".weight"
+        b_key = key_prefix * prefix * ".bias"
 
         if haskey(state_dict, w_key)
             push!(used_keys, w_key)
@@ -350,12 +359,13 @@ function load_weights!(model::DistilBertModel, state_dict)
     end
 
     function load_embedding!(emb::Embedding, key::String)
-        if haskey(state_dict, key)
-            push!(used_keys, key)
-            w = state_dict[key]
+        full_key = key_prefix * key
+        if haskey(state_dict, full_key)
+            push!(used_keys, full_key)
+            w = state_dict[full_key]
             copy!(emb.weight, permutedims(Float32.(w), (2, 1)))
         else
-            @warn "Missing weight: $key"
+            @warn "Missing weight: $full_key"
         end
     end
 
@@ -414,7 +424,7 @@ output = inference(model, tokenizer, "Hello world!")
 ```
 """
 function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String)
-    m = Flux.testmode(model)
+    m = Flux.testmode!(model)
     input_ids = encode(tokenizer, text)
     input_matrix = reshape(input_ids, :, 1)
     return m(input_matrix)
@@ -443,7 +453,7 @@ output = inference(model, tokenizer, ["Hello world!", "How are you?"])
 """
 function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer,
     texts::Vector{String}; max_length::Int=512)
-    m = Flux.testmode(model)
+    m = Flux.testmode!(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
     return m(input_ids; mask=attention_mask)
 end
@@ -687,7 +697,7 @@ Get sentence embeddings for multiple texts.
 """
 function embed(model::DistilBertModel, tokenizer::WordPieceTokenizer, texts::Vector{String};
     pooling::Symbol=:cls, max_length::Int=512)
-    m = Flux.testmode(model)
+    m = Flux.testmode!(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
     output = m(input_ids; mask=attention_mask)
 
