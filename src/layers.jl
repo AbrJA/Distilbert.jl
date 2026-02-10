@@ -104,7 +104,7 @@ function FeedForward(config::DistilBertConfig)
 end
 
 function (m::FeedForward)(x::AbstractArray{<:Real,3})
-    return m.lin2(m.dropout(m.lin1(x)))
+    return m.dropout(m.lin2(m.lin1(x)))
 end
 
 
