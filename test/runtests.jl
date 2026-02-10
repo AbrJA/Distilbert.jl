@@ -75,16 +75,16 @@ using Flux
         attention_mask[8:10, 2] .= 0.0f0  # Padding in second batch
 
         # CLS pooling
-        cls_out = cls_pooling(output)
+        cls_out = Distilbert.cls_pooling(output)
         @test size(cls_out) == (64, batch_size)
         @test cls_out == output[:, 1, :]
 
         # Mean pooling
-        mean_out = mean_pooling(output, attention_mask)
+        mean_out = Distilbert.mean_pooling(output, attention_mask)
         @test size(mean_out) == (64, batch_size)
 
         # Max pooling
-        max_out = max_pooling(output, attention_mask)
+        max_out = Distilbert.max_pooling(output, attention_mask)
         @test size(max_out) == (64, batch_size)
     end
 
