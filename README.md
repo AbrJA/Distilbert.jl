@@ -88,16 +88,16 @@ Hardware: Linux, 4 Threads. Comparison vs PyTorch (Hugging Face).
 ### Small Model (dim=32)
 | Task | Julia (MKL) | Python | Speedup |
 |------|-------------|--------|---------|
-| **Tokenizer** (Single) | **0.04 ms** | 0.16 ms | **4.0x** 🚀 |
-| **Inference** (Batch=1) | **0.53 ms** | 6.05 ms | **11.4x** 🚀 |
-| **Inference** (Batch=8) | **4.67 ms** | 4.78 ms | **1.02x** |
+| **Tokenizer** (Single) | **0.07 ms** | 0.23 ms | **3.3x** 🚀 |
+| **Inference** (Batch=1) | **0.52 ms** | 6.22 ms | **12.0x** 🚀 |
+| **Inference** (Batch=8) | **5.20 ms** | 8.02 ms | **1.5x** 🚀 |
 
 ### Big Model (Standard DistilBERT)
-| Task | Julia (MKL) | Python | Speedup |
-|------|-------------|--------|---------|
-| **Tokenizer** (Single) | **0.01 ms** | 0.10 ms | **10.0x** 🚀 |
-| **Inference** (Batch=1) | 55.70 ms | **46.45 ms** | 0.83x |
-| **Inference** (Batch=8) | 360.22 ms | **230.06 ms** | 0.64x |
+| Task | Julia (MKL) | Python (Torch) | Speedup |
+|------|-------------|----------------|---------|
+| **Tokenizer** (Single) | **0.01 ms** | 0.14 ms | **14.0x** 🚀 |
+| **Inference** (Batch=1) | 36.35 ms | **34.36 ms** | 1.06x (Near Parity) |
+| **Inference** (Batch=8) | 211.74 ms | **188.56 ms** | 1.1x |
 
 ## ✅ Verification
 
@@ -117,7 +117,11 @@ julia --project=. benchmarks/validate_parity.jl big
 
 ## Project Structure
 
-- `src/Distilbert.jl`: Core model architecture and high-level API.
-- `src/Tokenizer.jl`: WordPiece tokenizer implementation.
+- `src/Distilbert.jl`: Main entry point and exports.
+- `src/config.jl`: Configuration struct.
+- `src/layers.jl`: Transformer layers (Attention, FFN, Embeddings).
+- `src/models.jl`: Model definitions and task heads.
+- `src/loading.jl`: Weight loading logic.
+- `src/tokenizer.jl`: WordPiece tokenizer implementation.
 - `benchmarks/`: Performance benchmarking scripts (`benchmark_julia.jl`, `benchmark_python.py`).
 - `models/`: Directory structure for storing downloaded model weights.
