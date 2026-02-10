@@ -1,7 +1,7 @@
 struct Embeddings
     word_embeddings::Embedding
     position_embeddings::Embedding
-    LayerNorm::LayerNorm
+    layer_norm::LayerNorm
     dropout::Dropout
 end
 
@@ -27,7 +27,7 @@ function (m::Embeddings)(input_ids::AbstractMatrix{<:Integer})
     position_embeddings = m.position_embeddings(pos_ids) # (dim, seq_len)
 
     embeddings = words_embeddings .+ position_embeddings
-    embeddings = m.LayerNorm(embeddings)
+    embeddings = m.layer_norm(embeddings)
     embeddings = m.dropout(embeddings)
 
     return embeddings
@@ -44,7 +44,7 @@ struct MultiHeadSelfAttention
     dropout::Dropout
 end
 
-Flux.@layer MultiHeadSelfAttention
+Flux.@layer MultiHeadSelfAttention trainable = (q_lin, k_lin, v_lin, out_lin)
 
 function MultiHeadSelfAttention(config::DistilBertConfig)
     head_dim = config.dim ÷ config.n_heads
@@ -60,7 +60,7 @@ function MultiHeadSelfAttention(config::DistilBertConfig)
     )
 end
 
-function (m::MultiHeadSelfAttention)(x::AbstractArray{<:Real,3}; mask::AbstractArray=ones(Float32, 0, 0))
+function (m::MultiHeadSelfAttention)(x::AbstractArray{<:Real,3}; mask::Union{Nothing,AbstractMatrix}=nothing)
     # x shape: (dim, seq_len, batch_size)
 
     q = m.q_lin(x)
@@ -68,9 +68,10 @@ function (m::MultiHeadSelfAttention)(x::AbstractArray{<:Real,3}; mask::AbstractA
     v = m.v_lin(x)
 
     # Perform dot product attention using NNlib
-    mask_nnlib = nothing
-    if length(mask) > 0
-        mask_nnlib = reshape(mask, size(mask, 1), 1, 1, size(mask, 2)) .== 1
+    mask_nnlib = if isnothing(mask)
+        nothing
+    else
+        reshape(mask, size(mask, 1), 1, 1, size(mask, 2)) .== 1
     end
 
     # Apply attention
@@ -125,7 +126,7 @@ function TransformerBlock(config::DistilBertConfig)
     )
 end
 
-function (m::TransformerBlock)(x::AbstractArray{<:Real,3}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+function (m::TransformerBlock)(x::AbstractArray{<:Real,3}; mask::Union{Nothing,AbstractMatrix}=nothing)
     # Self-Attention
     sa_output = m.attention(x; mask=mask)
     sa_output = m.sa_layer_norm(sa_output .+ x)

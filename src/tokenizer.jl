@@ -109,7 +109,6 @@ function wordpiece_tokenize(token::String, vocab::Dict{String,Int}, unk_token::S
     len = length(token)
     output_tokens = String[]
     start_char = 1
-    prefix_buf = IOBuffer()  # Reusable buffer for "##" prefixed lookups
 
     while start_char <= len
         end_char = len
@@ -128,11 +127,7 @@ function wordpiece_tokenize(token::String, vocab::Dict{String,Int}, unk_token::S
             substr_view = SubString(token, start_byte, end_byte)
 
             if start_char > 1
-                # Build "##substr" in buffer to avoid allocation from string concat
-                truncate(prefix_buf, 0)
-                write(prefix_buf, "##")
-                write(prefix_buf, substr_view)
-                key = String(take!(prefix_buf))
+                key = "##" * substr_view
                 if haskey(vocab, key)
                     push!(output_tokens, key)
                     start_char = end_char + 1
@@ -267,18 +262,16 @@ function encode_pair(tokenizer::WordPieceTokenizer, text_a::String, text_b::Stri
 
         if length(tokens_a) + length(tokens_b) > max_tokens
             if truncation == :longest_first
-                # O(1) truncation: compute target lengths directly
                 excess = length(tokens_a) + length(tokens_b) - max_tokens
                 la, lb = length(tokens_a), length(tokens_b)
-                # Remove from the longer first, alternating
-                cut_a = 0
-                cut_b = 0
-                for _ in 1:excess
-                    if la - cut_a > lb - cut_b
-                        cut_a += 1
-                    else
-                        cut_b += 1
-                    end
+                # Distribute cuts: remove from the longer sequence first
+                half = excess ÷ 2
+                if la >= lb
+                    cut_a = min(la - 1, half + (excess % 2))
+                    cut_b = excess - cut_a
+                else
+                    cut_b = min(lb - 1, half + (excess % 2))
+                    cut_a = excess - cut_b
                 end
                 tokens_a = tokens_a[1:la-cut_a]
                 tokens_b = tokens_b[1:lb-cut_b]

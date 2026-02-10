@@ -25,7 +25,7 @@ function DistilBertModel(config::DistilBertConfig)
     )
 end
 
-function (m::DistilBertModel)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+function (m::DistilBertModel)(input_ids::AbstractMatrix{<:Integer}; mask::Union{Nothing,AbstractMatrix}=nothing)
     x = m.embeddings(input_ids)
 
     for block in m.transformer
@@ -71,7 +71,7 @@ function DistilBertForSequenceClassification(config::DistilBertConfig, num_label
     )
 end
 
-function (m::DistilBertForSequenceClassification)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+function (m::DistilBertForSequenceClassification)(input_ids::AbstractMatrix{<:Integer}; mask::Union{Nothing,AbstractMatrix}=nothing)
     hidden_states = m.distilbert(input_ids; mask=mask)
     pooled_output = cls_pooling(hidden_states)  # (dim, batch_size)
     pooled_output = m.pre_classifier(pooled_output)
@@ -110,7 +110,7 @@ function DistilBertForTokenClassification(config::DistilBertConfig, num_labels::
     )
 end
 
-function (m::DistilBertForTokenClassification)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+function (m::DistilBertForTokenClassification)(input_ids::AbstractMatrix{<:Integer}; mask::Union{Nothing,AbstractMatrix}=nothing)
     hidden_states = m.distilbert(input_ids; mask=mask)  # (dim, seq_len, batch_size)
     hidden_states = m.dropout(hidden_states)
     logits = m.classifier(hidden_states)
@@ -141,7 +141,7 @@ function DistilBertForQuestionAnswering(config::DistilBertConfig)
     )
 end
 
-function (m::DistilBertForQuestionAnswering)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+function (m::DistilBertForQuestionAnswering)(input_ids::AbstractMatrix{<:Integer}; mask::Union{Nothing,AbstractMatrix}=nothing)
     hidden_states = m.distilbert(input_ids; mask=mask)  # (dim, seq_len, batch_size)
     logits = m.qa_outputs(hidden_states)  # (2, seq_len, batch_size)
     start_logits = logits[1, :, :]  # (seq_len, batch_size)

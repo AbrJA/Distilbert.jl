@@ -1,11 +1,11 @@
-export inference, embed, cls_pooling, mean_pooling, max_pooling
+export predict, embed, cls_pooling, mean_pooling, max_pooling
 
 # ============================================================================
 # High-Level Inference API
 # ============================================================================
 
 """
-    inference(model, tokenizer, text) -> Matrix{Float32}
+    predict(model, tokenizer, text) -> Matrix{Float32}
 
 Run inference on a single text string.
 
@@ -21,10 +21,10 @@ Run inference on a single text string.
 ```julia
 model = load_model("path/to/model")
 tokenizer = WordPieceTokenizer("path/to/vocab.txt")
-output = inference(model, tokenizer, "Hello world!")
+output = predict(model, tokenizer, "Hello world!")
 ```
 """
-function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String)
+function predict(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String)
     m = Flux.testmode!(model)
     input_ids = encode(tokenizer, text)
     input_matrix = reshape(input_ids, :, 1)
@@ -32,7 +32,7 @@ function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::
 end
 
 """
-    inference(model, tokenizer, texts; max_length=512) -> Matrix{Float32}
+    predict(model, tokenizer, texts; max_length=512) -> Matrix{Float32}
 
 Run batch inference on multiple texts with automatic padding and masking.
 
@@ -49,10 +49,10 @@ Run batch inference on multiple texts with automatic padding and masking.
 ```julia
 model = load_model("path/to/model")
 tokenizer = WordPieceTokenizer("path/to/vocab.txt")
-output = inference(model, tokenizer, ["Hello world!", "How are you?"])
+output = predict(model, tokenizer, ["Hello world!", "How are you?"])
 ```
 """
-function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer,
+function predict(model::DistilBertModel, tokenizer::WordPieceTokenizer,
     texts::Vector{String}; max_length::Int=512)
     m = Flux.testmode!(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
@@ -147,7 +147,7 @@ Get sentence embedding for a single text.
 - `Vector{Float32}`: Sentence embedding of shape (dim,)
 """
 function embed(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String; pooling::Symbol=:cls)
-    output = inference(model, tokenizer, text)
+    output = predict(model, tokenizer, text)
 
     if pooling == :cls
         return vec(cls_pooling(output))

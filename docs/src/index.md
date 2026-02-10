@@ -29,7 +29,7 @@ encode_batch
 ### Inference & Embeddings
 
 ```@docs
-inference
+predict
 embed
 ```
 

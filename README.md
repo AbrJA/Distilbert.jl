@@ -44,7 +44,7 @@ tokenizer = WordPieceTokenizer(joinpath(model_path, "vocab.txt"))
 
 # Run inference on a single sentence
 text = "DistilBERT is amazing in Julia!"
-output = inference(model, tokenizer, text)
+output = predict(model, tokenizer, text)
 
 println("Output shape: ", size(output))
 # (dim, seq_len, 1)
