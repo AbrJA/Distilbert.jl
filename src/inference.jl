@@ -1,4 +1,4 @@
-export predict, embed, cls_pooling, mean_pooling, max_pooling
+export predict, embed
 
 # ============================================================================
 # High-Level Inference API
@@ -8,6 +8,9 @@ export predict, embed, cls_pooling, mean_pooling, max_pooling
     predict(model, tokenizer, text) -> Matrix{Float32}
 
 Run inference on a single text string.
+
+> **Note:** Call `Flux.testmode!(model)` before inference to disable dropout.
+> Call `Flux.trainmode!(model)` to re-enable it for training.
 
 # Arguments
 - `model::DistilBertModel`: The DistilBERT model
@@ -21,20 +24,22 @@ Run inference on a single text string.
 ```julia
 model = load_model("path/to/model")
 tokenizer = WordPieceTokenizer("path/to/vocab.txt")
+Flux.testmode!(model)
 output = predict(model, tokenizer, "Hello world!")
 ```
 """
 function predict(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String)
-    m = Flux.testmode!(model)
     input_ids = encode(tokenizer, text)
     input_matrix = reshape(input_ids, :, 1)
-    return m(input_matrix)
+    return model(input_matrix)
 end
 
 """
     predict(model, tokenizer, texts; max_length=512) -> Matrix{Float32}
 
 Run batch inference on multiple texts with automatic padding and masking.
+
+> **Note:** Call `Flux.testmode!(model)` before inference to disable dropout.
 
 # Arguments
 - `model::DistilBertModel`: The DistilBERT model
@@ -49,14 +54,14 @@ Run batch inference on multiple texts with automatic padding and masking.
 ```julia
 model = load_model("path/to/model")
 tokenizer = WordPieceTokenizer("path/to/vocab.txt")
+Flux.testmode!(model)
 output = predict(model, tokenizer, ["Hello world!", "How are you?"])
 ```
 """
 function predict(model::DistilBertModel, tokenizer::WordPieceTokenizer,
     texts::Vector{String}; max_length::Int=512)
-    m = Flux.testmode!(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
-    return m(input_ids; mask=attention_mask)
+    return model(input_ids; mask=attention_mask)
 end
 
 
@@ -180,9 +185,8 @@ Get sentence embeddings for multiple texts.
 """
 function embed(model::DistilBertModel, tokenizer::WordPieceTokenizer, texts::Vector{String};
     pooling::Symbol=:cls, max_length::Int=512)
-    m = Flux.testmode!(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
-    output = m(input_ids; mask=attention_mask)
+    output = model(input_ids; mask=attention_mask)
 
     if pooling == :cls
         return cls_pooling(output)

@@ -1,7 +1,10 @@
 export load_model
 
 """
-    load_model(path::String; init_random::Bool=false)
+    load_model(path; init_random=false)
+    load_model(::Type{DistilBertForSequenceClassification}, path; num_labels=2, init_random=false)
+    load_model(::Type{DistilBertForTokenClassification}, path; num_labels, init_random=false)
+    load_model(::Type{DistilBertForQuestionAnswering}, path; init_random=false)
 
 Load a pre-trained DistilBERT model from a directory.
 The directory must contain:
@@ -11,12 +14,71 @@ The directory must contain:
 # Arguments
 - `path::String`: Path to the directory containing model files
 - `init_random::Bool=false`: If true, return a randomly initialized model when no weights are found.
-  Otherwise, throws an error.
 
-# Returns
-- `DistilBertModel`: The loaded model
+# Examples
+```julia
+# Base model
+model = load_model("path/to/model")
+
+# Sequence classification (e.g., sentiment analysis)
+model = load_model(DistilBertForSequenceClassification, "path/to/model"; num_labels=2)
+
+# Question answering
+model = load_model(DistilBertForQuestionAnswering, "path/to/model")
+```
 """
 function load_model(path::String; init_random::Bool=false)
+    config, state_dict = _load_config_and_weights(path; init_random)
+    model = DistilBertModel(config)
+
+    if state_dict !== nothing
+        load_weights!(model, state_dict)
+    end
+
+    return model
+end
+
+function load_model(::Type{DistilBertForSequenceClassification}, path::String;
+    num_labels::Int=2, init_random::Bool=false)
+    config, state_dict = _load_config_and_weights(path; init_random)
+    model = DistilBertForSequenceClassification(config, num_labels)
+
+    if state_dict !== nothing
+        load_weights!(model, state_dict)
+    end
+
+    return model
+end
+
+function load_model(::Type{DistilBertForTokenClassification}, path::String;
+    num_labels::Int, init_random::Bool=false)
+    config, state_dict = _load_config_and_weights(path; init_random)
+    model = DistilBertForTokenClassification(config, num_labels)
+
+    if state_dict !== nothing
+        load_weights!(model, state_dict)
+    end
+
+    return model
+end
+
+function load_model(::Type{DistilBertForQuestionAnswering}, path::String;
+    init_random::Bool=false)
+    config, state_dict = _load_config_and_weights(path; init_random)
+    model = DistilBertForQuestionAnswering(config)
+
+    if state_dict !== nothing
+        load_weights!(model, state_dict)
+    end
+
+    return model
+end
+
+# ============================================================================
+# Internal: Config & Weight Loading
+# ============================================================================
+
+function _load_config_and_weights(path::String; init_random::Bool=false)
     config_path = joinpath(path, "config.json")
     if !isfile(config_path)
         error("config.json not found in $path")
@@ -38,8 +100,6 @@ function load_model(path::String; init_random::Bool=false)
         layer_norm_eps=Float32(get(config_dict, "layer_norm_eps", 1e-12))
     )
 
-    model = DistilBertModel(config)
-
     # Load weights
     safetensors_path = joinpath(path, "model.safetensors")
     pytorch_bin_path = joinpath(path, "pytorch_model.bin")
@@ -57,15 +117,12 @@ function load_model(path::String; init_random::Bool=false)
     else
         if init_random
             @warn "No model weights found in $path. Returning randomly initialized model."
-            return model
         else
             error("No model weights found in $path. Pass init_random=true to use random weights.")
         end
     end
 
-    load_weights!(model, state_dict)
-
-    return model
+    return config, state_dict
 end
 
 # ============================================================================
@@ -122,18 +179,16 @@ function load_embedding!(emb::Embedding, key::String, state_dict, used_keys::Set
     end
 end
 
-function load_weights!(model::DistilBertModel, state_dict)
-    used_keys = Set{String}()
-
-    # Auto-detect and strip "distilbert." prefix (present in task-specific models
-    # like DistilBertForMaskedLM, DistilBertForSequenceClassification, etc.)
-    key_prefix = ""
+function _detect_key_prefix(state_dict)
     first_key = first(keys(state_dict))
     if startswith(first_key, "distilbert.")
-        key_prefix = "distilbert."
         @info "Detected 'distilbert.' prefix in weight keys — stripping for base model loading."
+        return "distilbert."
     end
+    return ""
+end
 
+function _load_base_weights!(model::DistilBertModel, state_dict, used_keys::Set{String}, key_prefix::String)
     # 1. Embeddings
     load_embedding!(model.embeddings.word_embeddings, "embeddings.word_embeddings.weight", state_dict, used_keys, key_prefix)
     load_embedding!(model.embeddings.position_embeddings, "embeddings.position_embeddings.weight", state_dict, used_keys, key_prefix)
@@ -154,12 +209,53 @@ function load_weights!(model::DistilBertModel, state_dict)
         load_dense!(block.ffn.lin2, "$layer_prefix.ffn.lin2", state_dict, used_keys, key_prefix)
         load_layernorm!(block.output_layer_norm, "$layer_prefix.output_layer_norm", state_dict, used_keys, key_prefix)
     end
+end
 
-    # Report unused keys
+function _report_unused_keys(state_dict, used_keys)
     unused_keys = setdiff(keys(state_dict), used_keys)
     if !isempty(unused_keys)
         @info "Unused keys in state_dict ($(length(unused_keys))): $(collect(unused_keys))"
     end
-
     @debug "Weights loaded successfully ($(length(used_keys)) keys loaded)."
+end
+
+function load_weights!(model::DistilBertModel, state_dict)
+    used_keys = Set{String}()
+    key_prefix = _detect_key_prefix(state_dict)
+    _load_base_weights!(model, state_dict, used_keys, key_prefix)
+    _report_unused_keys(state_dict, used_keys)
+end
+
+function load_weights!(model::DistilBertForSequenceClassification, state_dict)
+    used_keys = Set{String}()
+    key_prefix = _detect_key_prefix(state_dict)
+    _load_base_weights!(model.distilbert, state_dict, used_keys, key_prefix)
+
+    # Load head weights
+    load_dense!(model.pre_classifier, "pre_classifier", state_dict, used_keys, "")
+    load_dense!(model.classifier, "classifier", state_dict, used_keys, "")
+
+    _report_unused_keys(state_dict, used_keys)
+end
+
+function load_weights!(model::DistilBertForTokenClassification, state_dict)
+    used_keys = Set{String}()
+    key_prefix = _detect_key_prefix(state_dict)
+    _load_base_weights!(model.distilbert, state_dict, used_keys, key_prefix)
+
+    # Load head weights
+    load_dense!(model.classifier, "classifier", state_dict, used_keys, "")
+
+    _report_unused_keys(state_dict, used_keys)
+end
+
+function load_weights!(model::DistilBertForQuestionAnswering, state_dict)
+    used_keys = Set{String}()
+    key_prefix = _detect_key_prefix(state_dict)
+    _load_base_weights!(model.distilbert, state_dict, used_keys, key_prefix)
+
+    # Load head weights
+    load_dense!(model.qa_outputs, "qa_outputs", state_dict, used_keys, "")
+
+    _report_unused_keys(state_dict, used_keys)
 end

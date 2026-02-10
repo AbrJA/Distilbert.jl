@@ -73,7 +73,7 @@ end
 
 function (m::DistilBertForSequenceClassification)(input_ids::AbstractMatrix{<:Integer}; mask::Union{Nothing,AbstractMatrix}=nothing)
     hidden_states = m.distilbert(input_ids; mask=mask)
-    pooled_output = cls_pooling(hidden_states)  # (dim, batch_size)
+    pooled_output = hidden_states[:, 1, :]  # CLS token: (dim, batch_size)
     pooled_output = m.pre_classifier(pooled_output)
     pooled_output = m.dropout(pooled_output)
     logits = m.classifier(pooled_output)

@@ -42,6 +42,9 @@ model_path = "path/to/your/model_directory"
 model = load_model(model_path)
 tokenizer = WordPieceTokenizer(joinpath(model_path, "vocab.txt"))
 
+# Disable dropout for inference
+Flux.testmode!(model)
+
 # Run inference on a single sentence
 text = "DistilBERT is amazing in Julia!"
 output = predict(model, tokenizer, text)
