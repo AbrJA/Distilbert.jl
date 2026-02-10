@@ -13,6 +13,23 @@ using .Tokenizer: WordPieceTokenizer, tokenize, encode, encode_pair, encode_batc
 export DistilBertConfig, DistilBertModel, load_model
 export WordPieceTokenizer, tokenize, encode, encode_pair, encode_batch, load_vocab
 
+"""
+    DistilBertConfig
+
+Configuration for the DistilBERT model.
+
+# Fields
+- `vocab_size::Int`: Vocabulary size (default: 30522)
+- `dim::Int`: Dimensionality of the encoder layers and the pooler layer (default: 768)
+- `n_layers::Int`: Number of hidden layers in the Transformer encoder (default: 6)
+- `n_heads::Int`: Number of attention heads for each attention layer in the Transformer encoder (default: 12)
+- `hidden_dim::Int`: Dimensionality of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder (default: 3072)
+- `dropout::Float32`: The dropout probabilitiy for all fully connected layers in the embeddings, encoder, and pooler (default: 0.1)
+- `max_position_embeddings::Int`: The maximum sequence length that this model might ever be used with (default: 512)
+- `initializer_range::Float32`: The standard deviation of the truncated_normal_initializer for initializing all weight matrices (default: 0.02)
+- `qa_dropout::Float32`: Dropout probability for the QA head (default: 0.1)
+- `seq_classif_dropout::Float32`: Dropout probability for the sequence classification head (default: 0.2)
+"""
 struct DistilBertConfig
     vocab_size::Int
     dim::Int
@@ -119,24 +136,8 @@ function (m::MultiHeadSelfAttention)(x::AbstractArray{<:Real,3}; mask::AbstractA
     v = m.v_lin(x)
 
     # Perform dot product attention using NNlib
-    # NNlib.dot_product_attention expects q, k, v
-    # It handles multi-head splitting internally if nheads is provided.
-
-    # Prepare mask for NNlib
-    # Current mask is (seq_len, batch_size) with 1 for keep, 0 for drop.
-    # NNlib expects a mask broadcastable to (kv_len, q_len, nheads, batch_size).
-    # We need to reshape our mask to (seq_len, 1, 1, batch_size) and convert to boolean (or suitable for addition if not using boolean mask support in older NNlib, but recent NNlib supports boolean masks).
-
     mask_nnlib = nothing
     if length(mask) > 0
-        # Assume mask is (seq_len, batch)
-        # Reshape to (seq_len, 1, 1, batch)
-        # We use boolean mask: true = keep, false = drop?
-        # NNlib doc says: "The mask is applied to the attention scores just before the softmax."
-        # If boolean: true means "keep" (add 0), false means "mask" (add -Inf).
-        # Wait, let's verify NNlib behavior.
-        # Standard: boolean mask usually means "true keeps".
-        # Let's trust the test script we ran earlier.
         mask_nnlib = reshape(mask, size(mask, 1), 1, 1, size(mask, 2)) .== 1
     end
 
@@ -204,6 +205,11 @@ function (m::TransformerBlock)(x::AbstractArray{<:Real,3}; mask::AbstractMatrix{
     return output
 end
 
+"""
+    DistilBertModel
+
+The bare DistilBERT Model transformer outputting raw hidden-states without any specific head on top.
+"""
 struct DistilBertModel
     config::DistilBertConfig
     embeddings::Embeddings
@@ -234,6 +240,20 @@ function (m::DistilBertModel)(input_ids::AbstractMatrix{<:Integer}; mask::Abstra
     return x
 end
 
+"""
+    load_model(path::String)
+
+Load a pre-trained DistilBERT model from a directory.
+The directory must contain:
+- `config.json`: Model configuration
+- `model.safetensors` (preferred) or `pytorch_model.bin`: Model weights
+
+# Arguments
+- `path::String`: Path to the directory containing model files
+
+# Returns
+- `DistilBertModel`: The loaded model
+"""
 function load_model(path::String)
     config_path = joinpath(path, "config.json")
     if !isfile(config_path)

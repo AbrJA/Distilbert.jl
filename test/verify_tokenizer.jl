@@ -75,16 +75,6 @@ expected_results = JSON.parse(python_out)
         println("  Julia IDs: $jl_ids")
         println("  Pythn IDs: $expected_ids")
 
-        # Note: Validating Python 0-based vs Julia 1-based indexing for IDs?
-        # The `encode` function in `Tokenizer.jl` returns the IDs from the vocab map.
-        # If `load_vocab` stored 1-based indices (i), then jl_ids will be 1-based relative to file lines.
-        # Python's transformers uses 0-based indices from the file.
-        # So we expect jl_ids to be equal to expected_ids .+ 1 if we used i.
-        # Let's check `load_vocab` implementation:
-        # vocab[token] = i
-        # So yes, they are 1-based.
-        # Thus, we should compare jl_ids .- 1 with expected_ids.
-
         @test (jl_ids .- 1) == expected_ids
     end
 end

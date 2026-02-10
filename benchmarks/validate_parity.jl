@@ -94,22 +94,16 @@ print(json.dumps(result))
     println("[Python] Token IDs (0-based): $py_input_ids")
     println("[Python] Output shape: $(size(py_hidden))")
 
-    # 5. Compare Token IDs
-    println("\n" * "-"^60)
-    println("CHECK 1: Token ID Parity")
-    println("-"^60)
-    # Julia uses 1-based, Python uses 0-based
+    # Julia: 1-based, Python: 0-based
     ids_match = (julia_ids .- 1) == py_input_ids
     if ids_match
-        println("  ✅ Token IDs match (Julia 1-based == Python 0-based + 1)")
+        println("  ✅ Token IDs match")
     else
         println("  ❌ Token IDs MISMATCH!")
         println("  Julia (1-based): $julia_ids")
         println("  Python (0-based): $py_input_ids")
-        println("  Julia - 1:        $(julia_ids .- 1)")
     end
 
-    # 6. Compare Hidden States
     println("\n" * "-"^60)
     println("CHECK 2: Hidden State Numerical Parity")
     println("-"^60)
@@ -129,7 +123,6 @@ print(json.dumps(result))
         println("  ❌ FAIL — outputs differ significantly")
     end
 
-    # 7. Per-token breakdown (first 3 dimensions)
     println("\n" * "-"^60)
     println("Per-Token Comparison (first 3 dims)")
     println("-"^60)
@@ -145,7 +138,6 @@ print(json.dumps(result))
         end
     end
 
-    # 8. Summary
     println("\n" * "="^60)
     println("VERDICT ($model_name)")
     println("="^60)

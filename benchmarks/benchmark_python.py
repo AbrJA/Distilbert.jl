@@ -47,9 +47,7 @@ def run_python_benchmark(model_name="big"):
 
     results = {}
 
-    # ---------------------------------------------------------
-    # PART 1: TOKENIZER BENCHMARK
-    # ---------------------------------------------------------
+    # Tokenizer Benchmark
     print("-" * 60)
     print("BENCHMARK: Tokenizer")
     print("-" * 60)
@@ -66,10 +64,8 @@ def run_python_benchmark(model_name="big"):
     results["Tokenizer (Batch=8)"] = t_batch
     print()
 
-    # ---------------------------------------------------------
-    # PART 2: MODEL SCALING BENCHMARK
-    # Python input shape: (batch_size, seq_len) — row-major
-    # ---------------------------------------------------------
+    # Model Scaling Benchmark
+    # Python input shape: (batch_size, seq_len)
     scenarios = [
         {"seq": 32, "batch": 1, "name": "Model (Seq=32, Batch=1)"},
         {"seq": 32, "batch": 8, "name": "Model (Seq=32, Batch=8)"},
@@ -91,9 +87,7 @@ def run_python_benchmark(model_name="big"):
         results[s["name"]] = t
         print(f"  Median: {t:.2f} ms\n")
 
-    # ---------------------------------------------------------
-    # PART 3: SUMMARY
-    # ---------------------------------------------------------
+    # Summary
     print("=" * 60)
     print(f"PYTHON RESULTS SUMMARY ({model_name})")
     print("=" * 60)

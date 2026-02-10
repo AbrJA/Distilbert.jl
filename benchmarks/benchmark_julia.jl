@@ -42,9 +42,7 @@ function benchmark_julia(model_name::String="big")
 
     results = Dict()
 
-    # ---------------------------------------------------------
-    # PART 1: TOKENIZER BENCHMARK
-    # ---------------------------------------------------------
+    # Tokenizer Benchmark
     println("-"^60)
     println("BENCHMARK: Tokenizer")
     println("-"^60)
@@ -66,10 +64,8 @@ function benchmark_julia(model_name::String="big")
     results["Tokenizer (Batch=8)"] = t_batch_ms
     println()
 
-    # ---------------------------------------------------------
-    # PART 2: MODEL SCALING BENCHMARK
-    # Julia input shape: (seq_len, batch_size) — column-major
-    # ---------------------------------------------------------
+    # Model Scaling Benchmark
+    # Input shape: (seq_len, batch_size)
     scenarios = [
         (seq=32, batch=1, name="Model (Seq=32, Batch=1)"),
         (seq=32, batch=8, name="Model (Seq=32, Batch=8)"),
@@ -82,7 +78,6 @@ function benchmark_julia(model_name::String="big")
         println("BENCHMARK: $(s.name)")
         println("-"^60)
 
-        # Julia: input shape is (seq_len, batch_size)
         input = rand(1:vocab_size, s.seq, s.batch)
         m(input) # Warmup
 
@@ -93,9 +88,7 @@ function benchmark_julia(model_name::String="big")
         @printf("  Median: %.2f ms\n\n", t_ms)
     end
 
-    # ---------------------------------------------------------
-    # PART 3: SUMMARY
-    # ---------------------------------------------------------
+    # Summary
     println("="^60)
     println("JULIA RESULTS SUMMARY ($model_name)")
     println("="^60)

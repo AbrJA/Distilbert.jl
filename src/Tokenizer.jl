@@ -4,6 +4,21 @@ using Unicode
 
 export WordPieceTokenizer, tokenize, encode, encode_pair, encode_batch, load_vocab
 
+"""
+    WordPieceTokenizer
+
+WordPiece tokenizer compatible with BERT-style tokenization.
+
+# Fields
+- `vocab::Dict{String,Int}`: Vocabulary mapping from token to ID
+- `ids_to_tokens::Dict{Int,String}`: Mapping from ID to token
+- `unk_token::String`: Unknown token (default: "[UNK]")
+- `sep_token::String`: Separator token (default: "[SEP]")
+- `pad_token::String`: Padding token (default: "[PAD]")
+- `cls_token::String`: Classification token (default: "[CLS]")
+- `mask_token::String`: Mask token (default: "[MASK]")
+- `do_lower_case::Bool`: Whether to lowercase input text
+"""
 struct WordPieceTokenizer
     vocab::Dict{String,Int}
     ids_to_tokens::Dict{Int,String}
@@ -15,6 +30,22 @@ struct WordPieceTokenizer
     do_lower_case::Bool
 end
 
+"""
+    WordPieceTokenizer(vocab_file; kwargs...)
+
+Create a WordPieceTokenizer from a vocabulary file.
+
+# Arguments
+- `vocab_file::String`: Path to the vocabulary file (one token per line)
+
+# Keyword Arguments
+- `do_lower_case::Bool=true`: Whether to lowercase input text
+- `unk_token::String="[UNK]"`: Unknown token
+- `sep_token::String="[SEP]"`: Separator token
+- `pad_token::String="[PAD]"`: Padding token
+- `cls_token::String="[CLS]"`: Classification token
+- `mask_token::String="[MASK]"`: Mask token
+"""
 function WordPieceTokenizer(vocab_file::String;
     do_lower_case=true,
     unk_token="[UNK]",
@@ -27,6 +58,11 @@ function WordPieceTokenizer(vocab_file::String;
     return WordPieceTokenizer(vocab, ids_to_tokens, unk_token, sep_token, pad_token, cls_token, mask_token, do_lower_case)
 end
 
+"""
+    load_vocab(vocab_file::String)
+
+Load vocabulary from a file.
+"""
 function load_vocab(vocab_file::String)
     vocab = Dict{String,Int}()
     open(vocab_file, "r") do f
@@ -123,6 +159,18 @@ function wordpiece_tokenize(token::String, vocab::Dict{String,Int}, unk_token::S
     return output_tokens
 end
 
+"""
+    tokenize(tokenizer, text) -> Vector{String}
+
+Tokenize a text string into WordPiece tokens.
+
+# Arguments
+- `tokenizer::WordPieceTokenizer`: The tokenizer
+- `text::String`: Input text
+
+# Returns
+- `Vector{String}`: List of tokens
+"""
 function tokenize(tokenizer::WordPieceTokenizer, text::String)
     basic_tokens = basic_tokenize(text, tokenizer.do_lower_case)
     wordpiece_tokens = String[]

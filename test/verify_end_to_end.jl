@@ -93,12 +93,10 @@ println("Python Input IDs: $py_input_ids")
 
 # 4. Compare
 @testset "End-to-End Verification" begin
-    # Verify Inputs match
-    # Julia IDs are 1-based (from Tokenizer), Python are 0-based.
+    # Verify Inputs match (Julia 1-based vs Python 0-based)
     @test (input_ids .- 1) == py_input_ids
 
     # Verify Embeddings
-    # julia_embeddings: (dim, seq_len, 1) -> (dim, seq_len)
     jl_emb_flat = dropdims(julia_embeddings, dims=3)
 
     diff_emb = abs.(jl_emb_flat .- py_embeddings)

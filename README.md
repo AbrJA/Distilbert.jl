@@ -1,20 +1,26 @@
-# Distilbert.jl
+# DistilBERT.jl
 
-A pure Julia implementation of the DistilBERT model, built with Flux.jl.
+A high-performance, pure Julia implementation of the **DistilBERT** model, built with **Flux.jl**.
 
-This project implements the DistilBERT model architecture from scratch in Julia, including a custom WordPiece tokenizer. It is designed to be compatible with pre-trained weights from Hugging Face (converted to `.safetensors` format).
+This project implements the DistilBERT architecture from scratch, featuring a custom WordPiece tokenizer and compatibility with Hugging Face pre-trained weights (`.safetensors`). It has been optimized for performance, achieving near-parity with PyTorch on CPU for large models and significantly outperforming it for small-batch inference.
 
-## Features
+## 🚀 Features
 
-- **Pure Julia Implementation**: No Python dependencies for inference.
-- **Flux.jl Integration**: Built using standard Flux layers and custom structs for Transformer components.
-- **WordPiece Tokenizer**: Fully implemented tokenizer in Julia (matching `BertTokenizer` logic).
-- **Weight Loading**: Supports loading weights from Hugging Face `model.safetensors` files.
-- **Verified Accuracy**: Validated against Python's `transformers` library with < 1e-6 numerical difference.
+- **Pure Julia**: No Python dependencies required for inference.
+- **High Performance**: Optimized attention mechanism using `NNlib.dot_product_attention`.
+- **Hugging Face Compatible**:
+    - Loads weights directly from `model.safetensors`.
+    - Implements `WordPieceTokenizer` matching `BertTokenizer` logic.
+- **Task-Specific Heads**:
+    - `DistilBertModel` (Base)
+    - `DistilBertForSequenceClassification`
+    - `DistilBertForTokenClassification`
+    - `DistilBertForQuestionAnswering`
+- **Verified Accuracy**: Validated against Python's `transformers` library with `< 1e-4` numerical difference.
 
-## Installation
+## 📦 Installation
 
-This package is currently a local project. To use it, clone the repository and instantiate the environment.
+This package is currently a local project. Clone the repository and instantiate the environment:
 
 ```bash
 git clone https://github.com/StartYourStart/Distilbert.jl.git
@@ -22,77 +28,96 @@ cd Distilbert.jl
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 ```
 
-## Quick Start
+## ⚡ Quick Start
 
 ### 1. Download Model Weights
-You need the `config.json`, `vocab.txt`, and `model.safetensors` from a DistilBERT model (e.g., `distilbert-base-uncased`). Place them in a `files/` directory in the root of the project.
+You need a folder containing `config.json`, `vocab.txt`, and `model.safetensors` from a DistilBERT model (e.g., `distilbert-base-uncased`).
 
-### 2. Run Inference
+### 2. Basic Inference
 ```julia
 using Distilbert
-using Flux
 
 # Load model and tokenizer
-model_path = "files/" # Directory containing config.json and model.safetensors
-vocab_path = "files/vocab.txt"
+model_path = "path/to/your/model_directory"
+model = load_model(model_path)
+tokenizer = WordPieceTokenizer(joinpath(model_path, "vocab.txt"))
 
-println("Loading model...")
-model = Distilbert.load_model(model_path)
-tokenizer = Distilbert.Tokenizer.WordPieceTokenizer(vocab_path; do_lower_case=true)
-
-# Tokenize input
-text = "DistilBERT is amazing."
-input_ids = Distilbert.Tokenizer.encode(tokenizer, text)
-
-# Prepare input for Flux (Seq Length x Batch Size)
-input_matrix = reshape(input_ids, :, 1)
-
-# Run model
-# Using testmode! effectively disables dropout for deterministic inference
-testmode!(model)
-output = model(input_matrix)
+# Run inference on a single sentence
+text = "DistilBERT is amazing in Julia!"
+output = inference(model, tokenizer, text)
 
 println("Output shape: ", size(output))
-# (Hidden Dim, Seq Length, Batch Size)
+# (dim, seq_len, 1)
 ```
 
-## Verification
+### 3. Sentence Embeddings
+Easily extract pooled embeddings for downstream tasks:
 
-To ensure the implementation matches the reference PyTorch implementation, we provide a verification suite.
+```julia
+# Get [CLS] token embedding
+cls_embedding = embed(model, tokenizer, text; pooling=:cls)
 
-### Prerequisites (Python)
-You need a Python environment with `torch` and `transformers` installed to run the verification scripts (which compare Julia output to Python output).
+# Get Mean-pooled embedding
+mean_embedding = embed(model, tokenizer, text; pooling=:mean)
+
+println("Embedding size: ", size(cls_embedding))
+# (dim,)
+```
+
+### 4. Batch Processing
+Efficiently process multiple sentences with automatic padding and masking:
+
+```julia
+texts = [
+    "Julia is fast.",
+    "Machine learning is exciting.",
+    "This is a longer sentence to test padding."
+]
+
+# Get batch embeddings
+batch_embeddings = embed(model, tokenizer, texts; pooling=:mean)
+
+println("Batch shape: ", size(batch_embeddings))
+# (dim, batch_size)
+```
+
+## 📊 Benchmarks
+
+Hardware: Linux, 4 Threads. Comparison vs PyTorch (Hugging Face).
+
+### Small Model (dim=32)
+| Task | Julia (MKL) | Python | Speedup |
+|------|-------------|--------|---------|
+| **Tokenizer** (Single) | **0.04 ms** | 0.16 ms | **4.0x** 🚀 |
+| **Inference** (Batch=1) | **0.53 ms** | 6.05 ms | **11.4x** 🚀 |
+| **Inference** (Batch=8) | **4.67 ms** | 4.78 ms | **1.02x** |
+
+### Big Model (Standard DistilBERT)
+| Task | Julia (MKL) | Python | Speedup |
+|------|-------------|--------|---------|
+| **Tokenizer** (Single) | **0.01 ms** | 0.10 ms | **10.0x** 🚀 |
+| **Inference** (Batch=1) | 55.70 ms | **46.45 ms** | 0.83x |
+| **Inference** (Batch=8) | 360.22 ms | **230.06 ms** | 0.64x |
+
+## ✅ Verification
+
+To ensure the implementation matches the reference PyTorch implementation, run the parity validation script:
 
 ```bash
-# Create a venv (optional but recommended)
-python3 -m venv .venv
-source .venv/bin/activate
+# Verify against a 'small' model (fast)
+julia --project=. benchmarks/validate_parity.jl small
 
-# Install dependencies
-pip install torch transformers safetensors numpy
+# Verify against a 'big' model
+julia --project=. benchmarks/validate_parity.jl big
 ```
 
-### Running Verification Tests
-
-Run the end-to-end verification script:
-
-```bash
-julia --project=. test/verify_end_to_end.jl
-```
-
-This script will:
-1. Load the Julia model and tokenizer.
-2. Run a sample sentence through the Julia model.
-3. Automatically run a Python script (using the installed `.venv` or system python) to get reference outputs from Hugging Face `transformers`.
-4. Compare Embeddings and Final Hidden States.
-5. Report max and mean differences (should be `< 1e-6`).
-
-### Component Tests
-- `test/verify_tokenizer.jl`: Verifies tokenization logic against Python.
-- `test/verify_weights_tensor_loading.jl`: Verifies tensor transposition logic.
+**Requirements:**
+- A Python environment (`.venv`) with `torch` and `transformers` installed is required for running the comparison scripts.
+- To use MKL for best performance in Julia: `using MKL` (ensure it's in your project dependencies).
 
 ## Project Structure
 
-- `src/Distilbert.jl`: Main module containing model architecture (Embeddings, TransformerBlock, etc.) and weight loading logic.
+- `src/Distilbert.jl`: Core model architecture and high-level API.
 - `src/Tokenizer.jl`: WordPiece tokenizer implementation.
-- `test/`: Verification and test scripts.
+- `benchmarks/`: Performance benchmarking scripts (`benchmark_julia.jl`, `benchmark_python.py`).
+- `models/`: Directory structure for storing downloaded model weights.

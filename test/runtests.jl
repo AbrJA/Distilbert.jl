@@ -21,7 +21,6 @@ using Flux
 
         output = model(input_ids)
 
-        # Expected output shape: (dim, seq_len, batch_size)
         @test size(output) == (64, seq_len, batch_size)
     end
 

@@ -1,14 +1,16 @@
-using Documenter, Example
+using Documenter, Distilbert
 
-makedocs(modules = [Example],
-         sitename = "Example.jl",
-         format = Documenter.HTML()
-         )
+makedocs(
+    modules=[Distilbert],
+    sitename="Distilbert.jl",
+    format=Documenter.HTML(
+        prettyurls=get(ENV, "CI", nothing) == "true",
+    ),
+    pages=[
+        "Home" => "index.md",
+    ],
+)
 
 deploydocs(
-    repo = "github.com/JuliaLang/Example.jl.git",
-    target = "build",
-    deps   = nothing,
-    make   = nothing,
-    push_preview = true,
+    repo="github.com/AbrJA/Distilbert.jl.git",
 )
