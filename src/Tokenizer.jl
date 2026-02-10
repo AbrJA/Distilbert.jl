@@ -40,10 +40,6 @@ function load_vocab(vocab_file::String)
     return vocab
 end
 
-function is_punctuation(char::Char)
-    return ispunct(char) || (char in ['-', '_', '.', ',', '?', '!', ':', ';', '(', ')', '[', ']', '{', '}', '"', '\'', '`', '~', '@', '#', '$', '%', '^', '&', '*', '+', '=', '<', '>', '/', '\\', '|'])
-end
-
 function basic_tokenize(text::String, do_lower_case::Bool)
     if do_lower_case
         text = lowercase(text)
@@ -57,7 +53,7 @@ function basic_tokenize(text::String, do_lower_case::Bool)
             if buffer.size > 0
                 push!(tokens, String(take!(buffer)))
             end
-        elseif is_punctuation(char)
+        elseif ispunct(char)
             if buffer.size > 0
                 push!(tokens, String(take!(buffer)))
             end
@@ -75,21 +71,19 @@ function basic_tokenize(text::String, do_lower_case::Bool)
 end
 
 function wordpiece_tokenize(token::String, vocab::Dict{String,Int}, unk_token::String)
-    # Use character indices instead of collecting into array
-    len = length(token)  # Number of characters (not bytes)
+    len = length(token)
     output_tokens = String[]
     start_char = 1
+    prefix_buf = IOBuffer()  # Reusable buffer for "##" prefixed lookups
 
     while start_char <= len
         end_char = len
         found = false
 
         while start_char <= end_char
-            # Use SubString to avoid allocation - creates a view of the original string
-            # We need character indices, so use thisind/nextind for proper Unicode handling
+            # Get byte indices for the character range
             start_byte = thisind(token, start_char)
             end_byte = thisind(token, end_char)
-            # Get the byte range for the substring
             if end_char < len
                 end_byte = prevind(token, nextind(token, end_byte))
             else
@@ -98,11 +92,14 @@ function wordpiece_tokenize(token::String, vocab::Dict{String,Int}, unk_token::S
 
             substr_view = SubString(token, start_byte, end_byte)
 
-            # Check with/without ## prefix
             if start_char > 1
-                substr_with_prefix = "##" * substr_view
-                if haskey(vocab, substr_with_prefix)
-                    push!(output_tokens, substr_with_prefix)
+                # Build "##substr" in buffer to avoid allocation from string concat
+                truncate(prefix_buf, 0)
+                write(prefix_buf, "##")
+                write(prefix_buf, substr_view)
+                key = String(take!(prefix_buf))
+                if haskey(vocab, key)
+                    push!(output_tokens, key)
                     start_char = end_char + 1
                     found = true
                     break
@@ -223,14 +220,21 @@ function encode_pair(tokenizer::WordPieceTokenizer, text_a::String, text_b::Stri
 
         if length(tokens_a) + length(tokens_b) > max_tokens
             if truncation == :longest_first
-                # Truncate the longer sequence first
-                while length(tokens_a) + length(tokens_b) > max_tokens
-                    if length(tokens_a) > length(tokens_b)
-                        pop!(tokens_a)
+                # O(1) truncation: compute target lengths directly
+                excess = length(tokens_a) + length(tokens_b) - max_tokens
+                la, lb = length(tokens_a), length(tokens_b)
+                # Remove from the longer first, alternating
+                cut_a = 0
+                cut_b = 0
+                for _ in 1:excess
+                    if la - cut_a > lb - cut_b
+                        cut_a += 1
                     else
-                        pop!(tokens_b)
+                        cut_b += 1
                     end
                 end
+                tokens_a = tokens_a[1:la-cut_a]
+                tokens_b = tokens_b[1:lb-cut_b]
             elseif truncation == :only_first
                 excess = length(tokens_a) + length(tokens_b) - max_tokens
                 tokens_a = tokens_a[1:max(1, length(tokens_a) - excess)]
@@ -285,7 +289,7 @@ Encode multiple texts into a batch matrix with padding and attention mask.
 function encode_batch(tokenizer::WordPieceTokenizer, texts::Vector{String};
     max_length::Int=512, padding::Symbol=:longest)
     # Encode all texts
-    all_ids = [encode(tokenizer, t) for t in texts]
+    all_ids = [encode(tokenizer, t; max_length=max_length, truncation=true) for t in texts]
 
     # Determine target length based on padding strategy
     max_actual_len = maximum(length.(all_ids))

@@ -5,11 +5,9 @@ using NNlib
 using JSON
 using Pickle
 using SafeTensors
-using LoopVectorization
 
 # Include Tokenizer submodule
 include("Tokenizer.jl")
-include("custom_mul.jl")
 using .Tokenizer: WordPieceTokenizer, tokenize, encode, encode_pair, encode_batch, load_vocab
 
 export DistilBertConfig, DistilBertModel, load_model
@@ -26,10 +24,6 @@ struct DistilBertConfig
     initializer_range::Float32
     qa_dropout::Float32
     seq_classif_dropout::Float32
-    sinusoidal_pos_embds::Bool
-    tie_weights::Bool
-    output_hidden_states::Bool
-    output_attentions::Bool
 end
 
 function DistilBertConfig(;
@@ -42,17 +36,16 @@ function DistilBertConfig(;
     max_position_embeddings=512,
     initializer_range=0.02f0,
     qa_dropout=0.1f0,
-    seq_classif_dropout=0.2f0,
-    sinusoidal_pos_embds=false,
-    tie_weights=true,
-    output_hidden_states=false,
-    output_attentions=false
+    seq_classif_dropout=0.2f0
 )
     return DistilBertConfig(
         vocab_size, dim, n_layers, n_heads, hidden_dim, dropout,
-        max_position_embeddings, initializer_range, qa_dropout, seq_classif_dropout,
-        sinusoidal_pos_embds, tie_weights, output_hidden_states, output_attentions
+        max_position_embeddings, initializer_range, qa_dropout, seq_classif_dropout
     )
+end
+
+function Base.show(io::IO, c::DistilBertConfig)
+    print(io, "DistilBertConfig(dim=$(c.dim), layers=$(c.n_layers), heads=$(c.n_heads), hidden=$(c.hidden_dim), vocab=$(c.vocab_size))")
 end
 
 
@@ -118,57 +111,63 @@ function MultiHeadSelfAttention(config::DistilBertConfig)
     )
 end
 
-function (m::MultiHeadSelfAttention)(x::AbstractArray{<:Real,3}, mask::Union{Nothing,AbstractMatrix{<:Real}}=nothing)
+function (m::MultiHeadSelfAttention)(x::AbstractArray{<:Real,3}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
     # x shape: (dim, seq_len, batch_size)
     dim, seq_len, batch_size = size(x)
+    HB = m.n_heads * batch_size
 
-    q = m.q_lin(x)
+    q = m.q_lin(x)  # (dim, seq_len, batch_size)
     k = m.k_lin(x)
     v = m.v_lin(x)
 
-    # Reshape for multi-head attention
-    # (dim, seq_len, batch_size) -> (head_dim, n_heads, seq_len, batch_size)
-    q = reshape(q, m.head_dim, m.n_heads, seq_len, batch_size)
-    k = reshape(k, m.head_dim, m.n_heads, seq_len, batch_size)
-    v = reshape(v, m.head_dim, m.n_heads, seq_len, batch_size)
+    # Reshape for batched_mul: (head_dim, n_heads*batch_size, seq_len) is NOT what we want.
+    # We need (head_dim, seq_len, n_heads*batch_size) for batched_mul.
+    # From (dim, seq_len, batch_size) = (head_dim*n_heads, seq_len, batch_size)
+    # reshape to (head_dim, n_heads, seq_len, batch_size) then we need to merge dims 2&4.
+    # Since n_heads and batch_size are not adjacent, we must use permutedims.
+    # BUT: Flux/NNlib provide batched_mul which handles this pattern.
+    #
+    # Alternative zero-copy approach:
+    #   (dim, seq_len, B) -> view as (head_dim, n_heads, seq_len, B)
+    #   PermutedDimsArray gives a lazy view (no copy) that Zygote can differentiate.
+    q4 = reshape(q, m.head_dim, m.n_heads, seq_len, batch_size)
+    k4 = reshape(k, m.head_dim, m.n_heads, seq_len, batch_size)
+    v4 = reshape(v, m.head_dim, m.n_heads, seq_len, batch_size)
 
-    # Fast attention scores using LoopVectorization
-    # Computes Q^T * K and scales, keeping (head_dim, n_heads, seq_len, batch_size) layout
-    # Output: (seq_len, seq_len, n_heads, batch_size)
+    # Lazy transpose of dims 2<->3: (head_dim, seq_len, n_heads, batch_size)
+    # Then reshape to (head_dim, seq_len, HB) for batched_mul
+    q3 = reshape(PermutedDimsArray(q4, (1, 3, 2, 4)), m.head_dim, seq_len, HB)
+    k3 = reshape(PermutedDimsArray(k4, (1, 3, 2, 4)), m.head_dim, seq_len, HB)
+    v3 = reshape(PermutedDimsArray(v4, (1, 3, 2, 4)), m.head_dim, seq_len, HB)
+
+    # Attention scores via BLAS batch GEMM: Q^T * K * scale
+    # batched_transpose(Q) is (seq_len, head_dim, HB)
+    # result: (seq_len, seq_len, HB)
     scale = 1.0f0 / sqrt(Float32(m.head_dim))
-    scores = fast_attention_scores(q, k, scale)
+    scores = NNlib.batched_mul(NNlib.batched_transpose(q3), k3)
+    scores = scores .* scale
 
     # Handle masking
-    if mask !== nothing
-        # Optimized mask expansion using broadcasting
-        # mask shape: (seq_len, batch_size) -> expand to match scores
-        # Reshape mask to (1, seq_len, 1, batch_size)
-        mask_reshaped = reshape(mask, 1, seq_len, 1, batch_size)
-        # We can broadcast this directly against scores (seq, seq, heads, batch)
-        # scores is (s1, s2, h, b). Mask applies to s2.
-        # mask_reshaped is (1, s2, 1, b).
-        # Broadcast will match dims.
-        scores = scores .+ (1.0f0 .- mask_reshaped) .* -1.0f9
+    if length(mask) > 0
+        # mask: (seq_len, batch_size) -> (1, seq_len, HB)
+        mask_exp = repeat(reshape(mask, 1, seq_len, 1, batch_size), 1, 1, m.n_heads, 1)
+        mask3 = reshape(mask_exp, 1, seq_len, HB)
+        scores = scores .+ (1.0f0 .- mask3) .* -1.0f9
     end
 
-    # Apply softmax. Reshape to treat heads*batch as one dim
-    scores_flat = reshape(scores, seq_len, seq_len, m.n_heads * batch_size)
-    weights_flat = softmax(scores_flat, dims=2)
-    weights_flat = m.dropout(weights_flat)
+    # Softmax over key dimension (dim=2) and dropout
+    weights = softmax(scores, dims=2)
+    weights = m.dropout(weights)
 
-    # Reshape back for context computation
-    weights = reshape(weights_flat, seq_len, seq_len, m.n_heads, batch_size)
+    # Context via BLAS batch GEMM: V * Weights^T
+    # V: (head_dim, seq_len, HB), Weights^T: (seq_len, seq_len, HB)
+    # result: (head_dim, seq_len, HB)
+    context = NNlib.batched_mul(v3, NNlib.batched_transpose(weights))
 
-    # Fast context computation using LoopVectorization
-    # Computes V * Weights^T
-    # Output: (head_dim, n_heads, seq_len, batch_size)
-    context = fast_attention_context(v, weights)
-
-    # Final reshape for output linear layer
-    # combine heads: (head_dim, n_heads, seq_len, batch_size) -> (dim, seq_len, batch_size)
-    # Memory layout of (head_dim, n_heads, seq_len, batch_size) allows direct reshape to (dim, seq_len, batch_size)
-    # because head_dim varies fastest, then n_heads.
-    context_flat = reshape(context, dim, seq_len, batch_size)
+    # Reshape back: (head_dim, seq_len, HB) -> (head_dim, seq_len, n_heads, B)
+    #             -> permute to (head_dim, n_heads, seq_len, B) -> (dim, seq_len, B)
+    context4 = PermutedDimsArray(reshape(context, m.head_dim, seq_len, m.n_heads, batch_size), (1, 3, 2, 4))
+    context_flat = reshape(collect(context4), dim, seq_len, batch_size)
 
     output = m.out_lin(context_flat)
     return output
@@ -213,9 +212,9 @@ function TransformerBlock(config::DistilBertConfig)
     )
 end
 
-function (m::TransformerBlock)(x::AbstractArray{<:Real,3}, mask::Union{Nothing,AbstractMatrix{<:Real}}=nothing)
+function (m::TransformerBlock)(x::AbstractArray{<:Real,3}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
     # Self-Attention
-    sa_output = m.attention(x, mask)
+    sa_output = m.attention(x; mask=mask)
     sa_output = m.sa_layer_norm(sa_output .+ x)
 
     # Feed Forward
@@ -233,6 +232,10 @@ end
 
 Flux.@layer DistilBertModel
 
+function Base.show(io::IO, m::DistilBertModel)
+    print(io, "DistilBertModel($(m.config))")
+end
+
 function DistilBertModel(config::DistilBertConfig)
     return DistilBertModel(
         config,
@@ -241,11 +244,11 @@ function DistilBertModel(config::DistilBertConfig)
     )
 end
 
-function (m::DistilBertModel)(input_ids::AbstractMatrix{<:Integer}; mask::Union{Nothing,AbstractMatrix{<:Real}}=nothing)
+function (m::DistilBertModel)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
     x = m.embeddings(input_ids)
 
     for block in m.transformer
-        x = block(x, mask)
+        x = block(x; mask=mask)
     end
 
     return x
@@ -275,11 +278,7 @@ function load_model(path::String)
         max_position_embeddings=get_key(config_dict, "max_position_embeddings", 512),
         initializer_range=Float32(get_key(config_dict, "initializer_range", 0.02)),
         qa_dropout=Float32(get_key(config_dict, "qa_dropout", 0.1)),
-        seq_classif_dropout=Float32(get_key(config_dict, "seq_classif_dropout", 0.2)),
-        sinusoidal_pos_embds=get_key(config_dict, "sinusoidal_pos_embds", false),
-        tie_weights=get_key(config_dict, "tie_weights", true),
-        output_hidden_states=get_key(config_dict, "output_hidden_states", false),
-        output_attentions=get_key(config_dict, "output_attentions", false)
+        seq_classif_dropout=Float32(get_key(config_dict, "seq_classif_dropout", 0.2))
     )
 
     model = DistilBertModel(config)
@@ -295,7 +294,9 @@ function load_model(path::String)
         state_dict = SafeTensors.load_safetensors(safetensors_path)
     elseif isfile(pytorch_bin_path)
         @debug "Loading weights from $pytorch_bin_path using Pickle..."
-        state_dict = Pickle.load(open(pytorch_bin_path))
+        state_dict = open(pytorch_bin_path, "r") do f
+            Pickle.load(f)
+        end
     else
         @warn "No model weights found. Returning randomly initialized model."
         return model
@@ -307,18 +308,26 @@ function load_model(path::String)
 end
 
 function load_weights!(model::DistilBertModel, state_dict)
+    used_keys = Set{String}()
+
     function load_dense!(dense::Dense, prefix::String)
         w_key = prefix * ".weight"
         b_key = prefix * ".bias"
 
         if haskey(state_dict, w_key)
+            push!(used_keys, w_key)
             w = state_dict[w_key]
             copy!(dense.weight, Float32.(w))
+        else
+            @warn "Missing weight: $w_key"
         end
 
         if haskey(state_dict, b_key)
+            push!(used_keys, b_key)
             b = state_dict[b_key]
             copy!(dense.bias, Float32.(b))
+        else
+            @warn "Missing weight: $b_key"
         end
     end
 
@@ -327,17 +336,26 @@ function load_weights!(model::DistilBertModel, state_dict)
         b_key = prefix * ".bias"
 
         if haskey(state_dict, w_key)
+            push!(used_keys, w_key)
             copy!(ln.diag.scale, Float32.(state_dict[w_key]))
+        else
+            @warn "Missing weight: $w_key"
         end
         if haskey(state_dict, b_key)
+            push!(used_keys, b_key)
             copy!(ln.diag.bias, Float32.(state_dict[b_key]))
+        else
+            @warn "Missing weight: $b_key"
         end
     end
 
     function load_embedding!(emb::Embedding, key::String)
         if haskey(state_dict, key)
+            push!(used_keys, key)
             w = state_dict[key]
             copy!(emb.weight, permutedims(Float32.(w), (2, 1)))
+        else
+            @warn "Missing weight: $key"
         end
     end
 
@@ -362,7 +380,13 @@ function load_weights!(model::DistilBertModel, state_dict)
         load_layernorm!(block.output_layer_norm, "$layer_prefix.output_layer_norm")
     end
 
-    @debug "Weights loaded successfully."
+    # Report unused keys
+    unused_keys = setdiff(keys(state_dict), used_keys)
+    if !isempty(unused_keys)
+        @info "Unused keys in state_dict ($(length(unused_keys))): $(collect(unused_keys))"
+    end
+
+    @debug "Weights loaded successfully ($(length(used_keys)) keys loaded)."
 end
 
 # ============================================================================
@@ -375,7 +399,7 @@ end
 Run inference on a single text string.
 
 # Arguments
-- `model::DistilBertModel`: The DistilBERT model (automatically set to test mode)
+- `model::DistilBertModel`: The DistilBERT model
 - `tokenizer::WordPieceTokenizer`: The tokenizer
 - `text::String`: Input text
 
@@ -390,10 +414,10 @@ output = inference(model, tokenizer, "Hello world!")
 ```
 """
 function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer, text::String)
-    Flux.testmode!(model)
+    m = Flux.testmode(model)
     input_ids = encode(tokenizer, text)
     input_matrix = reshape(input_ids, :, 1)
-    return model(input_matrix)
+    return m(input_matrix)
 end
 
 """
@@ -402,7 +426,7 @@ end
 Run batch inference on multiple texts with automatic padding and masking.
 
 # Arguments
-- `model::DistilBertModel`: The DistilBERT model (automatically set to test mode)
+- `model::DistilBertModel`: The DistilBERT model
 - `tokenizer::WordPieceTokenizer`: The tokenizer
 - `texts::Vector{String}`: Input texts
 - `max_length::Int`: Maximum sequence length (default: 512)
@@ -419,9 +443,9 @@ output = inference(model, tokenizer, ["Hello world!", "How are you?"])
 """
 function inference(model::DistilBertModel, tokenizer::WordPieceTokenizer,
     texts::Vector{String}; max_length::Int=512)
-    Flux.testmode!(model)
+    m = Flux.testmode(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
-    return model(input_ids; mask=attention_mask)
+    return m(input_ids; mask=attention_mask)
 end
 
 export inference
@@ -531,7 +555,7 @@ function DistilBertForSequenceClassification(config::DistilBertConfig, num_label
     )
 end
 
-function (m::DistilBertForSequenceClassification)(input_ids::AbstractMatrix{<:Integer}; mask=nothing)
+function (m::DistilBertForSequenceClassification)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
     hidden_states = m.distilbert(input_ids; mask=mask)
     pooled_output = cls_pooling(hidden_states)  # (dim, batch_size)
     pooled_output = m.pre_classifier(pooled_output)
@@ -570,7 +594,7 @@ function DistilBertForTokenClassification(config::DistilBertConfig, num_labels::
     )
 end
 
-function (m::DistilBertForTokenClassification)(input_ids::AbstractMatrix{<:Integer}; mask=nothing)
+function (m::DistilBertForTokenClassification)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
     hidden_states = m.distilbert(input_ids; mask=mask)  # (dim, seq_len, batch_size)
     hidden_states = m.dropout(hidden_states)
     logits = m.classifier(hidden_states)
@@ -601,7 +625,7 @@ function DistilBertForQuestionAnswering(config::DistilBertConfig)
     )
 end
 
-function (m::DistilBertForQuestionAnswering)(input_ids::AbstractMatrix{<:Integer}; mask=nothing)
+function (m::DistilBertForQuestionAnswering)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
     hidden_states = m.distilbert(input_ids; mask=mask)  # (dim, seq_len, batch_size)
     logits = m.qa_outputs(hidden_states)  # (2, seq_len, batch_size)
     start_logits = logits[1, :, :]  # (seq_len, batch_size)
@@ -663,9 +687,9 @@ Get sentence embeddings for multiple texts.
 """
 function embed(model::DistilBertModel, tokenizer::WordPieceTokenizer, texts::Vector{String};
     pooling::Symbol=:cls, max_length::Int=512)
-    Flux.testmode!(model)
+    m = Flux.testmode(model)
     input_ids, attention_mask = encode_batch(tokenizer, texts; max_length=max_length)
-    output = model(input_ids; mask=attention_mask)
+    output = m(input_ids; mask=attention_mask)
 
     if pooling == :cls
         return cls_pooling(output)
