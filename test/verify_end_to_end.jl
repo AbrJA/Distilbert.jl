@@ -4,7 +4,7 @@ using JSON
 using Flux
 
 # Paths
-files_dir = joinpath(@__DIR__, "../files")
+files_dir = joinpath(@__DIR__, "../models/small")
 vocab_file = joinpath(files_dir, "vocab.txt")
 
 # 1. Load Julia Model and Tokenizer

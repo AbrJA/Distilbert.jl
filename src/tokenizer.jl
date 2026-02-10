@@ -1,4 +1,3 @@
-module Tokenizer
 
 using Unicode
 
@@ -362,4 +361,3 @@ function encode_batch(tokenizer::WordPieceTokenizer, texts::Vector{String};
     return input_ids, attention_mask
 end
 
-end

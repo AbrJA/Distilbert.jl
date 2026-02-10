@@ -1,0 +1,150 @@
+export DistilBertModel, DistilBertForSequenceClassification, DistilBertForTokenClassification, DistilBertForQuestionAnswering
+
+"""
+    DistilBertModel
+
+The bare DistilBERT Model transformer outputting raw hidden-states without any specific head on top.
+"""
+struct DistilBertModel
+    config::DistilBertConfig
+    embeddings::Embeddings
+    transformer::Chain
+end
+
+Flux.@layer DistilBertModel
+
+function Base.show(io::IO, m::DistilBertModel)
+    print(io, "DistilBertModel($(m.config))")
+end
+
+function DistilBertModel(config::DistilBertConfig)
+    return DistilBertModel(
+        config,
+        Embeddings(config),
+        Chain([TransformerBlock(config) for _ in 1:config.n_layers]...)
+    )
+end
+
+function (m::DistilBertModel)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+    x = m.embeddings(input_ids)
+
+    for block in m.transformer
+        x = block(x; mask=mask)
+    end
+
+    return x
+end
+
+# ============================================================================
+# Task-Specific Heads
+# ============================================================================
+
+"""
+    DistilBertForSequenceClassification
+
+DistilBERT model with a classification head for sequence classification tasks.
+"""
+struct DistilBertForSequenceClassification
+    distilbert::DistilBertModel
+    pre_classifier::Dense
+    classifier::Dense
+    dropout::Dropout
+end
+
+Flux.@layer DistilBertForSequenceClassification
+
+"""
+    DistilBertForSequenceClassification(config, num_labels)
+
+Create a sequence classification model.
+
+# Arguments
+- `config::DistilBertConfig`: Model configuration
+- `num_labels::Int`: Number of classification labels
+"""
+function DistilBertForSequenceClassification(config::DistilBertConfig, num_labels::Int)
+    return DistilBertForSequenceClassification(
+        DistilBertModel(config),
+        Dense(config.dim => config.dim, relu),
+        Dense(config.dim => num_labels),
+        Dropout(config.seq_classif_dropout)
+    )
+end
+
+function (m::DistilBertForSequenceClassification)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+    hidden_states = m.distilbert(input_ids; mask=mask)
+    pooled_output = cls_pooling(hidden_states)  # (dim, batch_size)
+    pooled_output = m.pre_classifier(pooled_output)
+    pooled_output = m.dropout(pooled_output)
+    logits = m.classifier(pooled_output)
+    return logits  # (num_labels, batch_size)
+end
+
+"""
+    DistilBertForTokenClassification
+
+DistilBERT model with a token classification head (e.g., NER, POS tagging).
+"""
+struct DistilBertForTokenClassification
+    distilbert::DistilBertModel
+    classifier::Dense
+    dropout::Dropout
+end
+
+Flux.@layer DistilBertForTokenClassification
+
+"""
+    DistilBertForTokenClassification(config, num_labels)
+
+Create a token classification model.
+
+# Arguments
+- `config::DistilBertConfig`: Model configuration
+- `num_labels::Int`: Number of token labels
+"""
+function DistilBertForTokenClassification(config::DistilBertConfig, num_labels::Int)
+    return DistilBertForTokenClassification(
+        DistilBertModel(config),
+        Dense(config.dim => num_labels),
+        Dropout(config.dropout)
+    )
+end
+
+function (m::DistilBertForTokenClassification)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+    hidden_states = m.distilbert(input_ids; mask=mask)  # (dim, seq_len, batch_size)
+    hidden_states = m.dropout(hidden_states)
+    logits = m.classifier(hidden_states)
+    return logits  # (num_labels, seq_len, batch_size)
+end
+
+"""
+    DistilBertForQuestionAnswering
+
+DistilBERT model with a span prediction head for extractive QA.
+"""
+struct DistilBertForQuestionAnswering
+    distilbert::DistilBertModel
+    qa_outputs::Dense
+end
+
+Flux.@layer DistilBertForQuestionAnswering
+
+"""
+    DistilBertForQuestionAnswering(config)
+
+Create a question answering model.
+"""
+function DistilBertForQuestionAnswering(config::DistilBertConfig)
+    return DistilBertForQuestionAnswering(
+        DistilBertModel(config),
+        Dense(config.dim => 2)  # start_logits and end_logits
+    )
+end
+
+function (m::DistilBertForQuestionAnswering)(input_ids::AbstractMatrix{<:Integer}; mask::AbstractMatrix{Float32}=ones(Float32, 0, 0))
+    hidden_states = m.distilbert(input_ids; mask=mask)  # (dim, seq_len, batch_size)
+    logits = m.qa_outputs(hidden_states)  # (2, seq_len, batch_size)
+    start_logits = logits[1, :, :]  # (seq_len, batch_size)
+    end_logits = logits[2, :, :]    # (seq_len, batch_size)
+    return (start_logits=start_logits, end_logits=end_logits)
+end
